@@ -20,16 +20,19 @@ runs build/test/lint (those pollute the diff and contend with the editor).
 
 ## Install
 
-Skills are invoked from `~/.skills/`. Symlink each one (recommended, so it tracks
-the repo) — or copy it:
+Install each skill wherever your agent tool discovers skills. For Claude Code,
+symlink into `~/.claude/skills/` (or `~/.skills/`) so it tracks the repo:
 
 ```bash
-ln -s "$PWD/agent-pairing"  ~/.skills/agent-pairing
-ln -s "$PWD/agent-observer" ~/.skills/agent-observer
+ln -s "$PWD/agent-pairing"  ~/.claude/skills/agent-pairing
+ln -s "$PWD/agent-observer" ~/.claude/skills/agent-observer
 ```
 
-The watchers run via `bun ~/.skills/<skill>/scripts/watch.js`, so that path must
-resolve (requires [bun](https://bun.sh) and a git repo in the workspace being
+Other tools (e.g. Antigravity) use their own skills directory — install there per
+that tool's convention. The watcher path is **not** hardcoded: each SKILL.md has
+the agent run `scripts/watch.js` relative to the skill's own directory — the
+location it loaded the skill from — so it works wherever the skill lives. Requires
+[bun](https://bun.sh) and a git repo in the workspace being
 watched).
 
 ## Status

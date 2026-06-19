@@ -34,11 +34,13 @@ On first start, snapshot the current tree so the first audit has a baseline to d
 ```bash
 git stash create > /tmp/observer-last-review   # may print nothing on a clean tree; that's fine
 ```
-Then execute the watcher script as a background command:
+Then run the bundled watcher as a **background task** (`run_in_background`). The watcher ships with this skill at `scripts/watch.js`. Invoke it by **absolute path**: take the directory you loaded *this* SKILL.md from and append `/scripts/watch.js`. Do *not* `cd` into the skill — the watcher watches its own cwd, which must stay at the workspace you are auditing:
 ```bash
-bun ~/.skills/agent-observer/scripts/watch.js
+# SKILL_DIR = absolute path of the directory containing this SKILL.md.
+# You already know it — it's where you located this skill (varies by tool).
+bun "$SKILL_DIR/scripts/watch.js"
 ```
-Set `WaitMsBeforeAsync` to `1000` (so it goes to the background as a running task). The watcher waits indefinitely and exits only on a real change; it will not wake you on a timer.
+The watcher waits indefinitely and exits only on a real change; it will not wake you on a timer.
 
 After launching it, **stop calling tools** to let the agent go idle.
 

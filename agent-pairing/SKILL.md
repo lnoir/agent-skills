@@ -93,12 +93,19 @@ collide and a fresh session can resume an interrupted loop:
    [`roles/observer.md`](roles/observer.md). The role file stays the single
    maintained source of the contract; the orchestrator just hands it over.
 
-4. Arm the watcher in the **background**:
+4. Arm the watcher as a **background task** (`run_in_background`). The watcher ships
+   with this skill at `scripts/watch.js`. Invoke it by **absolute path**: take the
+   directory you loaded *this* SKILL.md from and append `/scripts/watch.js`. Do
+   *not* `cd` into the skill — the watcher watches its own cwd, which must stay at
+   the workspace you are auditing:
    ```bash
-   bun ~/.skills/agent-pairing/scripts/watch.js
+   # SKILL_DIR = absolute path of the directory containing this SKILL.md.
+   # You already know it — it's where you located this skill (varies by tool:
+   # ~/.claude/skills/agent-pairing, an Antigravity skills dir, a repo clone, …).
+   bun "$SKILL_DIR/scripts/watch.js"
    ```
-   Set `WaitMsBeforeAsync` to `1000` so it backgrounds as a running task. It waits
-   indefinitely and exits only on a real change — it will not wake you on a timer.
+   It waits indefinitely and exits only on a real change — it will not wake you on
+   a timer.
 5. **Stop calling tools** and go idle. Both the watcher and the Executor are now
    background tasks; the next wake comes from whichever finishes first.
 

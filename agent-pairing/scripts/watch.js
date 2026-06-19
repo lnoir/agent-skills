@@ -47,11 +47,11 @@ const ignoreExtensions = [
 
 // Settle window after the first event in a burst, so we check git once the file
 // is fully written rather than mid-save, and coalesce a multi-file burst.
-const DEBOUNCE_MS = Number(process.env.OBSERVER_DEBOUNCE_MS) || 400;
+const DEBOUNCE_MS = process.env.OBSERVER_DEBOUNCE_MS !== undefined ? Number(process.env.OBSERVER_DEBOUNCE_MS) : 400;
 
 // git-status poll interval (safety net for saves fs.watch misses). Set 0 to
 // disable. Read-only; only ever touches .git/ (ignored), never the work tree.
-const POLL_MS = Number(process.env.OBSERVER_POLL_MS) || 25000;
+const POLL_MS = process.env.OBSERVER_POLL_MS !== undefined ? Number(process.env.OBSERVER_POLL_MS) : 25000;
 
 function isIgnored(filename) {
   const parts = filename.split(path.sep);
