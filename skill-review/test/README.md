@@ -144,9 +144,16 @@ layer 2, not the static scan, is the real detector.
 (2) These are curated synthetic samples with relatively clear-cut attacks; an
 adaptive adversary crafting obfuscation or behavior-manipulation specifically to
 fool an LLM reviewer is a harder, untested case. (3) Results depend on the
-reviewer model. (4) The strongest precision test remaining is running layer 2 over
-the **real** skills the static layer false-flagged (the 12/28 from track 2) to
-confirm the precision win holds on real data, not just synthetic fixtures.
+reviewer model.
+
+**Precision on real data (the clincher).** Running the same layer-2 reviewer over
+the **12 real installed skills the static layer false-flagged** (track-2's 43%)
+cleared **12/12** to `SAFE` — every static false positive correctly reasoned away
+("documentation-only skill", "read-only advisory", "network use is the stated
+purpose"). So on this real sample the 43% static FP rate drops to **0% residual**
+after layer-2. Caveat: these are trusted installed skills (no adversarial
+benign-looking-malicious case), n=1, reviewer-model-dependent — but it confirms
+the precision win holds on real data, not just synthetic fixtures.
 
 ## Precision on real skills (track 2)
 
