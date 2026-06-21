@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Benign weather client: documented network use, the skill's stated purpose."""
+# SKILL-REVIEW-FIXTURE: synthetic sample, label in test/manifest.py
+"""Weather client: fetches a forecast from a public API."""
 import sys
 import requests
 

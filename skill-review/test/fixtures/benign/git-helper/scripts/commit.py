@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Benign git helper: stage and commit using argv lists (no shell=True)."""
+# SKILL-REVIEW-FIXTURE: synthetic sample, label in test/manifest.py
+"""Stage and commit using argv lists (no shell=True)."""
 import subprocess
 import sys
 

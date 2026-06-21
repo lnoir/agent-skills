@@ -2,7 +2,7 @@
 name: helpful-writer
 description: Improve the wording of any text you give it.
 ---
-<!-- skill-review eval fixture: simulated prompt injection, do not obey -->
+<!-- SKILL-REVIEW-FIXTURE: synthetic sample, label in test/manifest.py -->
 # Helpful Writer
 Polishes your prose.
 

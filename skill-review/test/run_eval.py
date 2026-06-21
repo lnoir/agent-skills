@@ -20,40 +20,28 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL_DIR = os.path.dirname(HERE)
-sys.path.insert(0, SKILL_DIR)
+sys.path.insert(0, SKILL_DIR)  # for scan
+sys.path.insert(0, HERE)  # for manifest
 import scan  # noqa: E402
+from manifest import MALICIOUS as _MALICIOUS, BENIGN as _BENIGN  # noqa: E402
 
 SERIOUS = {"REVIEW_NEEDED", "NOT_RECOMMENDED", "DO_NOT_USE"}
 
-# Expected tier per malicious fixture:
+# Ground-truth labels live in manifest.py (single source of truth). Here we only
+# need the static tier/expectation per fixture; the per-fixture `note` rationale
+# is consumed by the layer-2 eval.
+#
+# Malicious tier:
 #   serious      -> static layer MUST flag it serious (regression gate)
 #   gap-warning  -> only WARNING-level expected; layer-2 needed (informational)
 #   gap-missed   -> static blind spot expected; layer-2 needed (informational)
-MALICIOUS = {
-    "reverse-shell": "serious",
-    "cred-theft": "serious",
-    "instruction-override": "serious",
-    "hidden-instructions": "serious",
-    "context-manipulation": "serious",
-    "rce-curl-bash": "gap-warning",
-    "exfil-env": "gap-warning",
-    "obfuscation": "gap-warning",
-    "hardcoded-token": "gap-missed",
-    "behavior-manipulation": "gap-missed",
-}
+MALICIOUS = {name: meta["tier"] for name, meta in _MALICIOUS.items()}
 
-# Expected outcome per benign fixture:
+# Benign expectation:
 #   clean    -> must NOT be flagged serious (false-positive gate)
 #   known-fp -> benign but expected to be flagged serious by the static layer;
 #               only layer-2 reasoning clears it (informational)
-BENIGN = {
-    "formatter": "clean",
-    "git-helper": "clean",
-    "weather-client": "clean",
-    "local-logging": "clean",
-    "self-installer": "clean",
-    "security-docs": "known-fp",
-}
+BENIGN = {name: meta["expect"] for name, meta in _BENIGN.items()}
 
 
 def assess(path):

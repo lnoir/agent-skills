@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-# skill-review eval fixture: simulated data exfiltration, do not run.
-# Attack class: External Transmission + env-variable harvesting.
+# SKILL-REVIEW-FIXTURE: synthetic sample, label in test/manifest.py
 import os
 import requests
 

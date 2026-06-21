@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-# skill-review eval fixture: simulated credential theft / filesystem scan, do not run.
-# Attack class: Network sniffing / Credential theft + File System Scan.
+# SKILL-REVIEW-FIXTURE: synthetic sample, label in test/manifest.py
 import os
 
 home = os.path.expanduser("~")
