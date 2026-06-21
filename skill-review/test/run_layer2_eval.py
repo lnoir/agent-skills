@@ -54,18 +54,99 @@ VALID_RECS = {"SAFE"} | SERIOUS
 STATIC_FALSE_FLAGS = {"security-docs", "weather-client"}
 
 
+def _balanced_objects(text):
+    """Yield every brace-balanced {...} substring in text, in order.
+
+    A simple depth counter that respects JSON string literals and escapes, so
+    objects containing nested braces (e.g. a primary_concern mentioning
+    "{target}") are captured whole rather than truncated at the first inner
+    brace. Fenced ```json blocks and surrounding prose are handled for free:
+    the scan ignores everything outside balanced brace runs.
+    """
+    depth = 0
+    start = -1
+    in_str = False
+    escape = False
+    for i, ch in enumerate(text):
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start != -1:
+                    yield text[start:i + 1]
+                    start = -1
+
+
+def _verdict_from_obj(obj):
+    """Normalize a parsed object into a verdict dict, or None if invalid."""
+    if not isinstance(obj, dict):
+        return None
+    rec = str(obj.get("recommendation", "")).strip().upper()
+    if rec not in VALID_RECS:
+        return None
+    return {"recommendation": rec,
+            "primary_concern": str(obj.get("primary_concern", "")).strip()}
+
+
+def _prose_fallback(text):
+    """Last-resort recovery when no JSON object is present.
+
+    Only fires when the prose unambiguously contains exactly one of the four
+    verdict tokens AND a "recommend"-type cue word. If the text mentions more
+    than one distinct verdict token, it is ambiguous and we return None rather
+    than guess. The shape-template enum (".../...") is excluded by requiring the
+    token to appear as a standalone word, not part of a "A|B|C" alternation.
+    """
+    if not re.search(r"recommend", text, re.IGNORECASE):
+        return None
+    found = set()
+    for token in VALID_RECS:
+        # Standalone token: not glued to a '|' on either side (skips the
+        # "SAFE|REVIEW_NEEDED|..." shape template) and not part of a word.
+        pat = r"(?<![|\w]){}(?![|\w])".format(re.escape(token))
+        if re.search(pat, text):
+            found.add(token)
+    if len(found) != 1:
+        return None
+    return {"recommendation": found.pop(), "primary_concern": ""}
+
+
 def extract_json(text):
-    """Pull the recommendation object out of reviewer stdout."""
-    for m in re.finditer(r"\{[^{}]*\"recommendation\"[^{}]*\}", text, re.DOTALL):
+    """Pull the recommendation object out of reviewer stdout.
+
+    Scans for brace-balanced JSON objects anywhere in the text (tolerating
+    fenced ```json blocks and surrounding prose), parses each, and returns the
+    LAST one that carries a valid recommendation - so a trailing real verdict
+    wins over an earlier shape-template echo. The shape template's value
+    ("SAFE|REVIEW_NEEDED|...") is not a valid enum and is naturally rejected.
+    Falls back to unambiguous-prose recovery only when no JSON verdict exists.
+    Returns None when there is genuinely no parseable verdict.
+    """
+    result = None
+    for chunk in _balanced_objects(text):
         try:
-            obj = json.loads(m.group(0))
+            obj = json.loads(chunk)
         except ValueError:
             continue
-        rec = str(obj.get("recommendation", "")).strip().upper()
-        if rec in VALID_RECS:
-            return {"recommendation": rec,
-                    "primary_concern": str(obj.get("primary_concern", "")).strip()}
-    return None
+        verdict = _verdict_from_obj(obj)
+        if verdict is not None:
+            result = verdict  # last valid wins
+    if result is not None:
+        return result
+    return _prose_fallback(text)
 
 
 def call_reviewer(prompt, timeout):

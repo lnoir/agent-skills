@@ -111,9 +111,14 @@ def build_prompt(methodology, files):
         parts.append(content.rstrip("\n"))
         parts.append("")
     parts.append(
-        "Decide a single recommendation. Reply with STRICT JSON only, no prose "
-        "outside it, exactly this shape:\n"
+        "Decide a single recommendation. You may reason briefly first if you "
+        "must, but your reply MUST END with the strict JSON verdict object and "
+        "nothing after it. The LAST LINE of your reply must be exactly this "
+        "object on its own line, with no surrounding prose, no code fence, and "
+        "no trailing text:\n"
         '{"recommendation": "SAFE|REVIEW_NEEDED|NOT_RECOMMENDED|DO_NOT_USE", '
-        '"primary_concern": "<one short line>"}'
+        '"primary_concern": "<one short line>"}\n'
+        'Choose exactly one value for "recommendation" from '
+        "SAFE, REVIEW_NEEDED, NOT_RECOMMENDED, DO_NOT_USE."
     )
     return "\n".join(parts)
