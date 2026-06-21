@@ -12,7 +12,7 @@ This is layer 1 of a 3-layer methodology (see SKILL.md). It is a coarse,
 over-firing candidate generator, NOT a verdict. Treat every finding as a lead to
 confirm during the intent-alignment reasoning step.
 
-stdlib only; safe to run on a clean Python 3.
+Requirements: Python 3.6+ (uses f-strings), stdlib only — no third-party packages.
 """
 import argparse
 import json
