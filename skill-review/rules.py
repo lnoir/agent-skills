@@ -32,7 +32,11 @@ CODE_RULES = [
         "id": "NET001", "category": "network", "name": "External network request",
         "severity": "WARNING", "confidence": 0.7,
         "patterns": [
-            r"\b(curl|wget)\b\s+https?://",
+            # Source rules.yaml used `\b(curl|wget)\b\s+https?://`, which only
+            # matches a bare `curl https://` — any flags in between (the real-world
+            # case, e.g. `curl -fsSL https://`) defeat it. Broadened to allow
+            # arguments before the URL so flagged invocations are caught too.
+            r"\b(curl|wget)\b.*\s+https?://",
             r"\brequests\.(get|post|put|delete)\s*\(",
             r"\bfetch\s*\(\s*['\"]https?://",
         ],
