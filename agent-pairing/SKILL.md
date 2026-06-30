@@ -12,10 +12,14 @@ to the Executor through a shared file, looping until the task is done and clean.
 
 This builds on the [agent-observer](../agent-observer/SKILL.md) skill's event-driven wake
 mechanism: a background watcher exits the instant a real change is saved, waking
-this session to audit the diff. It **exits only on a git-confirmed change, never
+this session to audit the diff. It **exits only on a confirmed content change, never
 on a timer** — no change, no wake — so when you are woken there is always
-something to review. A slow `git status` poll backs up `fs.watch` for the saves it
-misses (in-place rename-replace edits).
+something to review. Confirmation is a **content fingerprint** of every non-ignored
+file (`git ls-files -oc --exclude-standard`, tracked *and* untracked), so it catches
+edits to untracked files too — `git status` alone cannot (untracked status is binary
+`??`, and untracked directories are collapsed), which matters when the work-in-progress
+tree is not yet committed. An edit-then-revert hashes identically and does not wake.
+A slow poll backs up `fs.watch` for the saves it misses (in-place rename-replace edits).
 
 ## Roles (do not blur them)
 
@@ -120,7 +124,7 @@ A wake is one of two signals. Branch on it.
    git diff ${BASE:-HEAD}
    git status --porcelain          # read any new untracked files in full
    ```
-   The watcher only exits on a git-confirmed change, so there is normally
+   The watcher only exits on a confirmed content change, so there is normally
    something here. The lone exception is a change reverted in the split second
    between the watcher's check and yours — if the diff is genuinely empty, re-arm
    the watcher (Phase 1 step 4) and go idle without reporting.
