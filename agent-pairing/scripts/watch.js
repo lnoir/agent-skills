@@ -40,7 +40,20 @@ const ignoreDirs = [
   '.agents',
   '.pairing',
   'tmp',
-  'out'
+  'out',
+  // Build / dependency / runtime trees. All are gitignored (so the content
+  // fingerprint already excludes them), but recursively descending into them to
+  // set inotify watches exhausts the per-user watch/instance limit (EMFILE) — the
+  // reason the original recursive fs.watch crashed here. Pruning them keeps the
+  // watch budget on real source dirs; the git poll remains the reliable backstop.
+  '.venv',
+  'venv',
+  '__pycache__',
+  '.pytest_cache',
+  '.svelte-kit',
+  '.mvh',
+  '.playwright-mcp',
+  'coverage'
 ];
 
 // Extensions to ignore (cheap fast-path only; the git check is the real filter).
@@ -57,7 +70,13 @@ const DEBOUNCE_MS = process.env.OBSERVER_DEBOUNCE_MS !== undefined ? Number(proc
 
 // git-status poll interval (safety net for saves fs.watch misses). Set 0 to
 // disable. Read-only; only ever touches .git/ (ignored), never the work tree.
-const POLL_MS = process.env.OBSERVER_POLL_MS !== undefined ? Number(process.env.OBSERVER_POLL_MS) : 25000;
+const POLL_MS = process.env.OBSERVER_POLL_MS !== undefined ? Number(process.env.OBSERVER_POLL_MS) : 4000;
+
+// Cap on the number of per-directory inotify watches we arm. fs.watch on Linux
+// consumes a limited per-user resource (fs.inotify.max_user_instances, often 128);
+// blowing past it throws EMFILE/ENOSPC and killed the original recursive watcher.
+// We stay well under the cap and let the git poll cover any dirs we didn't watch.
+const MAX_WATCHES = process.env.OBSERVER_MAX_WATCHES !== undefined ? Number(process.env.OBSERVER_MAX_WATCHES) : 96;
 
 function isIgnored(filename) {
   const parts = filename.split(path.sep);
@@ -123,11 +142,55 @@ let pollTimer = null;
 
 console.log(`Watching ${watchDir} (debounce ${DEBOUNCE_MS}ms, poll ${POLL_MS}ms; exits only on a content change to a non-ignored file)...`);
 
-const watcher = fs.watch(watchDir, { recursive: true }, (event, filename) => {
-  if (!filename) return;
-  if (isIgnored(filename)) return;
-  scheduleCheck(filename);
-});
+// Low-latency layer: a NON-recursive fs.watch on each non-ignored directory,
+// walked once at arm time. We deliberately do NOT use `{recursive:true}` — on
+// Linux it descends into every subtree (node_modules, .venv, …) and exhausts the
+// inotify instance limit (EMFILE), which crashed the original watcher. Ignored
+// dirs are pruned before descent, each watch has an 'error' handler so an inotify
+// hiccup never crashes the process, and we stop at MAX_WATCHES. Anything not
+// covered here (deeper dirs past the cap, dirs created after arm) is caught by the
+// git poll below — the reliable backstop. Both funnel through the same
+// fingerprint-confirmed checkAndExit(): no wake without a real content change.
+const watchers = [];
+let watchDegraded = false;
+
+function safeWatch(dir) {
+  if (watchers.length >= MAX_WATCHES) { watchDegraded = true; return false; }
+  let w;
+  try {
+    w = fs.watch(dir, { persistent: true }, (event, filename) => {
+      // filename is relative to `dir`; the git fingerprint is the real filter, so
+      // a cheap ext check is enough to skip obvious churn (a stray trigger that
+      // nets no content change simply won't wake us — checkAndExit confirms).
+      if (filename && isIgnored(filename)) return;
+      scheduleCheck(filename || dir);
+    });
+  } catch (e) {
+    watchDegraded = true;
+    return false;
+  }
+  w.on('error', () => {});  // inotify hiccup — the poll still covers us
+  watchers.push(w);
+  return true;
+}
+
+function armWatches(dir) {
+  if (!safeWatch(dir)) return;
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+  catch (e) { return; }
+  for (const ent of entries) {
+    if (!ent.isDirectory()) continue;
+    if (ignoreDirs.includes(ent.name)) continue;
+    if (watchers.length >= MAX_WATCHES) { watchDegraded = true; return; }
+    armWatches(path.join(dir, ent.name));
+  }
+}
+
+armWatches(watchDir);
+if (watchDegraded) {
+  console.error(`note: fs.watch coverage capped at ${watchers.length} dirs (MAX_WATCHES=${MAX_WATCHES}); the ${POLL_MS}ms git poll is the backstop for the rest.`);
+}
 
 if (POLL_MS > 0) {
   pollTimer = setInterval(() => checkAndExit('git-poll (fs.watch missed a save)'), POLL_MS);
@@ -150,7 +213,7 @@ function checkAndExit(reason) {
 function finish(message) {
   if (debounceTimer) clearTimeout(debounceTimer);
   if (pollTimer) clearInterval(pollTimer);
-  watcher.close();
+  for (const w of watchers) { try { w.close(); } catch (e) {} }
   console.log(message);
   process.exit(0);
 }
