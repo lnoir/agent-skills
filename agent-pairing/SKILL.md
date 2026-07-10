@@ -1,6 +1,6 @@
 ---
 name: agent-pairing
-description: Run paired AI agents on a coding task — one background Executor writes the code while this session acts as a live Observer, auditing every save and feeding findings back through a shared file until the task converges clean.
+description: Run paired AI agents on a coding task — one background Executor writes the code while this session acts as a live Observer, auditing every save and feeding findings back through a shared file until the static audit comes back clean.
 ---
 
 # Agent Pairing
@@ -8,18 +8,33 @@ description: Run paired AI agents on a coding task — one background Executor w
 Pair an autonomous **Executor** (a background agent that writes the code) with an
 **Observer** (this session, auditing edits in real time). The Observer catches
 bugs, compile errors, and integration gaps as they are saved and feeds them back
-to the Executor through a shared file, looping until the task is done and clean.
+to the Executor through a shared file, looping until the static audit is clean.
 
 This builds on the [agent-observer](../agent-observer/SKILL.md) skill's event-driven wake
 mechanism: a background watcher exits the instant a real change is saved, waking
 this session to audit the diff. It **exits only on a confirmed content change, never
-on a timer** — no change, no wake — so when you are woken there is always
-something to review. Confirmation is a **content fingerprint** of every non-ignored
-file (`git ls-files -oc --exclude-standard`, tracked *and* untracked), so it catches
-edits to untracked files too — `git status` alone cannot (untracked status is binary
-`??`, and untracked directories are collapsed), which matters when the work-in-progress
-tree is not yet committed. An edit-then-revert hashes identically and does not wake.
-A slow poll backs up `fs.watch` for the saves it misses (in-place rename-replace edits).
+on a timer** — no change, no wake. Confirmation is a **content fingerprint** of every
+non-ignored file (`git ls-files -oc --exclude-standard`, tracked *and* untracked),
+so it catches edits to untracked files too. An edit-then-revert hashes identically
+and does not wake. A slow poll backs up `fs.watch` for the saves it misses.
+
+## Fit check — before anything else
+
+Run this gate mentally before Phase 1. If any item fails, say so and fall back to
+working normally instead of running a loop that cannot fire:
+
+1. **A local git worktree the Executor writes to.** MCP-only, cloud-side, or
+   remote-build tasks produce no local saves — the watcher can never wake and the
+   loop silently degrades to one end-of-run read. Don't run it.
+2. **The change is big enough to pair on.** For a one-file, few-line change the
+   ceremony costs more than it catches — just do it and review inline.
+3. **The work surface is visible to git.** If the task's target paths are
+   gitignored, the watcher and diffs cannot see them (`pair.js init` warns when
+   you pass targets). Fall back to explicit end-of-run review.
+4. **One pairing session per working tree.** The watcher is repo-global; two
+   sessions in one tree audit each other's edits, and a parallel actor switching
+   branches under the run corrupts it. For parallel runs use separate git
+   worktrees. `pair.js init` refuses to double-arm over a live run.
 
 ## Roles (do not blur them)
 
@@ -36,149 +51,188 @@ dynamic verification. Read [`roles/observer.md`](roles/observer.md) now — it i
 your mandate for this session. The orchestrator hands the Executor its contract at
 kickoff (inlined into the spawn prompt), so it can't be skipped.
 
+**Mixed-role work is unsupported.** Don't plan "the Observer implements slice X" —
+its own saves trip its own watcher into self-wake loops. If the user insists on
+the Observer doing a batch of edits: stop the watcher first (`TaskStop`), make the
+batch, run `pair.js audit-begin`/`audit-end` to fold it into the baseline, re-arm.
+
+## The lifecycle CLI
+
+All setup and round bookkeeping goes through **`scripts/pair.js`** — one simple,
+non-compound invocation per protocol step, identical across harnesses and
+sessions. Invoke it by **absolute path** (`SKILL_DIR` = the directory you loaded
+this SKILL.md from) with cwd at the workspace being audited:
+
+```bash
+bun "$SKILL_DIR/scripts/pair.js" <command>
+```
+
+| Command | Who | Does |
+|---------|-----|------|
+| `init [--force] [target...]` | Observer | kickoff: preconditions, run dir, `run.json`, local git exclude |
+| `status` | Observer | dump `run.json`, watcher liveness, findings tally |
+| `audit-begin [--full]` | Observer | snapshot first, then print the delta to audit |
+| `audit-end` | Observer | advance `last-review` — only after findings are recorded |
+| `round` | Observer | bump the round; exits 2 at the 3-round cap |
+| `finish` | Observer | mark done, release the Executor, stop the watcher |
+| `executor-ready` | Executor | signal ready_to_finish (wakes the Observer) |
+| `executor-wait [--timeout s]` | Executor | poll for the verdict: exit 0 done, 3 new findings, 4 timeout |
+
+Tip: allowlisting `bun */agent-pairing/scripts/*.js *` once removes per-step
+permission prompts entirely.
+
 ## The `.pairing/` channel
 
 The shared bus between the two agents. There is no live message channel into a
 running background agent, so these files are how findings flow back.
 
-Each run is isolated under its own directory, so re-runs and parallel work don't
-collide and a fresh session can resume an interrupted loop:
-
 ```
 .pairing/
-  run.json                  # active run: id, status, round
+  run.json                  # SINGLE SOURCE OF TRUTH: id, status, round, paths, handshake
   runs/<run-id>/
     task.md                 # the brief
     findings.md             # append-only audit log (IDs scoped to this run)
     last-review             # git stash create snapshot SHA
-  task.md       -> runs/<run-id>/task.md       # stable symlinks to the active
-  findings.md   -> runs/<run-id>/findings.md   # run, so the Executor's paths and
-  last-review   -> runs/<run-id>/last-review   # the role contract never change
 ```
 
+- **All paths come from `run.json`** (`paths.task`, `paths.findings`,
+  `paths.last_review`). Never guess a run directory from a timestamp — clocks
+  differ between the terminal and the harness — and there are **no symlinks**;
+  file tools fight them (writes through them fail or clobber the link).
 - `findings.md` entries: an ID, severity, `file:line`, a short description, and a
   status marker `OPEN` or `RESOLVED`. IDs restart per run.
-- `last-review` — a `git stash create` snapshot SHA, so each audit diffs only what
-  is *new* since the previous review instead of re-reporting the whole tree.
-- **One pairing session per working tree.** The watcher is repo-global, so two
-  sessions in one tree would audit each other's edits. For parallel runs, use
-  separate git worktrees — that isolates both `.pairing/` and the file watching.
+- `.pairing/` is kept out of commits via **`.git/info/exclude`** (local, never
+  staged) — `pair.js init` handles it. Never add it to the tracked `.gitignore`;
+  that hunk rides into the next commit. If an old run already added a
+  `.pairing/` line to a tracked `.gitignore`, leave it alone (removing it would
+  dirty the tree mid-task); just don't add new ones.
+- **Harness note:** `.pairing/` files are plain workspace files, not managed
+  artifacts. Write them with the basic file-write tool — no artifact metadata,
+  no artifact/brain directory routing. If your harness rejects a write as "not a
+  valid artifact path", retry as a plain file write with no metadata.
 
 ## Phase 1 — Kickoff
 
-1. Lay out the run-scoped channel and keep it out of commits:
-   ```bash
-   RUN_ID=$(date +%Y%m%d-%H%M%S)
-   RUN_DIR=.pairing/runs/$RUN_ID
-   mkdir -p "$RUN_DIR"
-   : > "$RUN_DIR/findings.md"
-   git stash create > "$RUN_DIR/last-review"   # may be empty on a clean tree; fine
-   ln -sfn "runs/$RUN_ID/task.md"     .pairing/task.md
-   ln -sfn "runs/$RUN_ID/findings.md" .pairing/findings.md
-   ln -sfn "runs/$RUN_ID/last-review" .pairing/last-review
-   printf '{"id":"%s","status":"running","round":0}\n' "$RUN_ID" > .pairing/run.json
-   grep -qxF '.pairing/' .gitignore 2>/dev/null || echo '.pairing/' >> .gitignore
-   ```
-2. Write the task brief to `.pairing/task.md` (the goal, constraints, acceptance
-   criteria — enough for the Executor to act without this conversation).
+1. `bun "$SKILL_DIR/scripts/pair.js" init` (optionally pass the task's target
+   paths so it can warn if they are gitignored). It prints `run.json`; note
+   `paths.task` and `paths.findings`.
+2. Write the task brief to the `paths.task` file (the goal, constraints,
+   acceptance criteria — enough for the Executor to act without this
+   conversation).
 3. Read [`roles/executor.md`](roles/executor.md) and spawn the Executor as a
-   **background** `Agent` (`run_in_background: true`), **inlining the role file's
-   full contents** into the prompt — don't make the Executor go fetch it; deliver
-   the contract directly so it can't be skipped. The prompt is the role file
-   verbatim, followed by:
+   **named background `Agent`** (`run_in_background: true`, `name:
+   "executor-<run-id>"` — named so `SendMessage` can reach it later), **inlining
+   the role file's full contents** into the prompt, followed by:
 
-   > Your task brief is in `.pairing/task.md`. Read it and implement it in this
-   > workspace now.
+   > Read `.pairing/run.json`; your task brief is at its `paths.task`. The
+   > pairing CLI is at `<absolute path to scripts/pair.js>`. Implement the brief
+   > in this workspace now.
 
    Spawn an Executor that actually **has the tools to verify its own work** (e.g.
-   the `general-purpose` agent, which can run the build/tests) — "owns dynamic
-   verification" only holds if it can run things. If it reports it couldn't verify,
-   fall back to the Observer's read-only confirm carve-out in
-   [`roles/observer.md`](roles/observer.md). The role file stays the single
-   maintained source of the contract; the orchestrator just hands it over.
-
-4. Arm the watcher as a **background task** (`run_in_background`). The watcher ships
-   with this skill at `scripts/watch.js`. Invoke it by **absolute path**: take the
-   directory you loaded *this* SKILL.md from and append `/scripts/watch.js`. Do
-   *not* `cd` into the skill — the watcher watches its own cwd, which must stay at
-   the workspace you are auditing:
+   the `general-purpose` agent, which can run the build/tests). If it reports it
+   couldn't verify, fall back to the Observer's read-only confirm carve-out in
+   [`roles/observer.md`](roles/observer.md).
+4. Arm the watcher as a **background task** (`run_in_background`). Do *not* `cd`
+   into the skill — the watcher watches its own cwd, which must stay at the
+   workspace:
    ```bash
-   # SKILL_DIR = absolute path of the directory containing this SKILL.md.
-   # You already know it — it's where you located this skill (varies by tool:
-   # ~/.claude/skills/agent-pairing, an Antigravity skills dir, a repo clone, …).
    bun "$SKILL_DIR/scripts/watch.js"
    ```
-   It waits indefinitely and exits only on a real change — it will not wake you on
-   a timer.
-5. **Stop calling tools** and go idle. Both the watcher and the Executor are now
-   background tasks; the next wake comes from whichever finishes first.
+   It records its PID into `run.json` (so `init`/`finish` can reap it), waits
+   indefinitely, and exits only on a real change — or self-reaps after
+   `OBSERVER_MAX_LIFETIME_MS` (default 4 h) with a distinct message.
+5. **Stop calling tools** and go idle. Parking means exactly this: end the turn
+   and wait for the background task notification (watcher exit or Executor
+   finish). Do not use `ScheduleWakeup` or any timer — the next wake comes from
+   whichever background task finishes first.
 
 ## Phase 2 — Wake & branch
 
-A wake is one of two signals. Branch on it.
+A wake is one of three signals. Branch on the watcher's exit message / the
+notification type.
 
-### (a) Watcher exited with `Detected change:` — a real change was saved
-1. Diff only what is new since the last review, and catch new untracked files:
-   ```bash
-   BASE=$(cat .pairing/last-review)
-   git diff ${BASE:-HEAD}
-   git status --porcelain          # read any new untracked files in full
-   ```
-   The watcher only exits on a confirmed content change, so there is normally
-   something here. The lone exception is a change reverted in the split second
-   between the watcher's check and yours — if the diff is genuinely empty, re-arm
-   the watcher (Phase 1 step 4) and go idle without reporting.
-2. Read `.pairing/findings.md` first to avoid re-flagging. Reconcile: mark items
+### (a) Watcher exited `Detected change: <file/poll reason>` — a save landed
+1. `pair.js audit-begin` — it snapshots the tree **first**, then prints the delta
+   since the last review plus every untracked file. The snapshot-first ordering
+   is what closes the race where edits made *during* your audit would fold into
+   the baseline unaudited: anything saved after `audit-begin` appears in the
+   next delta. If the delta is empty (edit-then-revert), re-arm and go idle.
+2. Read the findings file first to avoid re-flagging. Reconcile: mark items
    `RESOLVED` if this delta fixes them.
-3. Audit the new delta (the [agent-observer](../agent-observer/SKILL.md) lens): compile/syntax
-   errors, integration gaps (arg parsed but not passed, route changed but caller
-   not updated), logic bugs, off-by-ones, secrets/values that don't add up.
-4. Append new findings to `.pairing/findings.md`, then advance the snapshot:
-   ```bash
-   git stash create > .pairing/last-review
-   ```
+3. Audit the delta (the [agent-observer](../agent-observer/SKILL.md) lens):
+   compile/syntax errors, integration gaps, logic bugs, off-by-ones,
+   secrets/values that don't add up. Also read any file `audit-begin` lists as
+   changed-but-untracked in full.
+4. Append new findings to `paths.findings`, then `pair.js audit-end`. Never
+   advance the baseline any other way — the ordering is what keeps every save
+   audited.
 5. Print a concise report to the user (what changed, new findings, resolved).
 6. Re-arm the watcher (Phase 1 step 4) and go idle.
 
-### (b) Executor task-notification — the Executor finished
-1. Do a final full audit (`git diff $(cat .pairing/last-review)` + `git status`).
-2. Reconcile `findings.md`. If **OPEN** findings remain AND the `round` in
-   `.pairing/run.json` is fewer than **3**: bump `round` in `run.json`, re-spawn
-   the Executor (background `Agent`, same inlined [`roles/executor.md`](roles/executor.md)
-   contract) asking it to resolve the remaining `OPEN` items in
-   `.pairing/findings.md`, re-arm the watcher, go idle.
+### (b) Watcher exited `Detected change: executor signalled ready_to_finish`
+The Executor believes it is done and is now polling `executor-wait` for your
+verdict (bounded — default 150 s — so act promptly):
+1. Run the **mandatory whole-run pass**: `pair.js audit-begin --full` diffs from
+   the base of the run, not the last delta. This closes the per-delta coverage
+   hole — a bug introduced and then buried under later edits within one snapshot
+   window never appeared in any single delta.
+2. If findings: append them (`OPEN`) and `pair.js audit-end`. The Executor's
+   poll sees them, exits code 3, resolves them, and signals ready again. Re-arm
+   the watcher and go idle.
+3. If clean: `pair.js audit-end`, then `pair.js finish` — this releases the
+   Executor (its poll sees `status: done` and exits 0) and stops the watcher.
+   Report per **Finishing** below.
 
-   > Note the async race this guards against: the Executor may finish reporting
-   > "no open findings" because it read `findings.md` *before* the Observer wrote
-   > the latest one. The convergence round is the backstop — it is load-bearing,
-   > not optional.
-3. If clean — or the 3-round cap is hit — **stop the watcher** (`TaskStop`), set
-   `status` to `done` in `run.json`, write a final summary to the user (what was
-   built, findings resolved, any that remain open at the cap), and end the loop.
+### (c) Executor task-notification — the Executor returned without the handshake
+(Timeout on `executor-wait`, a harness that killed it, or an Executor that
+skipped the protocol.)
+1. Run the whole-run pass (`pair.js audit-begin --full`), reconcile findings,
+   `pair.js audit-end`.
+2. If **OPEN** findings remain: `pair.js round` (it exits 2 at the 3-round cap —
+   then finish with the open items noted). Otherwise re-spawn the Executor
+   (named background `Agent`, same inlined contract) with the printed respawn
+   brief, re-arm the watcher, go idle. This round backstop also covers the old
+   async race where the Executor read the findings file before your last append.
+3. If clean — or at the cap — `pair.js finish` and report per **Finishing**.
 
-There is no third "idle" signal — the watcher never wakes you with nothing to
-review. Termination comes from the Executor finishing (branch b), not from a clock.
+## Finishing — say what the loop did *not* verify
+
+The terminal state is **"static audit clean — runtime unverified"**, never
+"converged clean". A static audit means a model read the code and it looked
+right; it is not evidence the code works. The final summary MUST list what was
+out of reach, per the checklist in [`roles/observer.md`](roles/observer.md):
+timing/concurrency behaviour, CI-only outcomes, generated artifacts needing
+regeneration, DB-/service-backed tests. Predictable blind spots, stated up
+front, beat discovering them in CI.
+
+## Follow-up fixes after done
+
+For a small correction after `finish`, do **not** have the Observer edit source
+and do not restart Phase 1. Run a follow-up round in the same run dir:
+`pair.js round` won't work on a done run — instead re-open by setting `status`
+back to `running` in `run.json`, `pair.js round`, then SendMessage the named
+Executor (or re-spawn) with just the fix brief, and re-arm the watcher.
 
 ## Resuming an interrupted run
 
-If this session starts fresh on a tree where `.pairing/run.json` already exists
-with `status: running`, a previous loop was interrupted (its orchestrator session
-ended). Read `run.json` and `.pairing/findings.md`, then:
-- **OPEN findings remain** → re-spawn the Executor for them (continue, don't reset,
-  the `round` count) and re-arm the watcher.
+If this session starts fresh on a tree where `run.json` exists with
+`status: running`, a previous loop was interrupted. `pair.js status`, read the
+findings file, then:
+- **OPEN findings remain** → re-spawn the Executor for them (continue, don't
+  reset, the `round` count) and re-arm the watcher.
 - **none open but the task looks unfinished** → re-spawn to finish.
-- **done** → set `status: done` and stop.
+- **actually complete** → `pair.js finish`.
 
-To start an unrelated new task instead, run Phase 1 — a new `RUN_ID` archives the
-old run under `.pairing/runs/` and repoints the symlinks; nothing is lost.
+To start an unrelated new task, `pair.js init --force` archives the old run
+under `.pairing/runs/` and reaps its watcher; nothing is lost.
 
 ## Stopping
 
-The loop ends when the Executor completes and findings converge clean, the
-convergence cap is reached, or whoever started the session interrupts it. The
-watcher will not end it for you — always `TaskStop` the watcher when you stop.
-
-Because there is no idle timeout, a hung Executor that neither writes nor returns
-leaves the loop waiting silently. That is the deliberate trade for "never wake
-with nothing to review": a stuck run is ended by you noticing and interrupting,
-not by a timer. The Observer never commits — leave git history to the user.
+The loop ends via `pair.js finish` (audit clean or the cap), or when whoever
+started the session interrupts it. `finish` reaps the watcher by PID; if you
+stop any other way, `TaskStop` the watcher yourself. A hung Executor that
+neither writes nor returns leaves the loop waiting silently — that is the
+deliberate trade for "never wake with nothing to review"; the watcher's
+max-lifetime self-reap is the outer bound. The Observer never commits — leave
+git history to the user. During any recovery involving branch operations, clear
+untracked `.pairing/` state first — leftover files block `git checkout`.
