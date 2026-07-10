@@ -53,7 +53,14 @@ const ignoreDirs = [
   '.svelte-kit',
   '.mvh',
   '.playwright-mcp',
-  'coverage'
+  'coverage',
+  // Package-manager / build caches that residue past .gitignore in practice
+  // (observed waking real runs on cache churn).
+  '.pnpm-store',
+  '.turbo',
+  '.next',
+  '.cache',
+  '.postee'
 ];
 
 // Extensions to ignore (cheap fast-path only; the git check is the real filter).
@@ -62,6 +69,14 @@ const ignoreExtensions = [
   '.lock',
   '.lockb',
   '.DS_Store'
+];
+
+// Exact basenames to ignore (lockfiles and cache files whose extension is generic).
+const ignoreBasenames = [
+  'package-lock.json',
+  'pnpm-lock.yaml',
+  'yarn.lock',
+  '.eslintcache'
 ];
 
 // Settle window after the first event in a burst, so we check git once the file
@@ -78,9 +93,17 @@ const POLL_MS = process.env.OBSERVER_POLL_MS !== undefined ? Number(process.env.
 // We stay well under the cap and let the git poll cover any dirs we didn't watch.
 const MAX_WATCHES = process.env.OBSERVER_MAX_WATCHES !== undefined ? Number(process.env.OBSERVER_MAX_WATCHES) : 96;
 
+// Self-reap ceiling so an orphaned watcher (its orchestrator session died) does
+// not linger forever. This is a LIFECYCLE exit, not a wake: the exit message is
+// distinct from `Detected change:` so the observer never mistakes it for one.
+// Set 0 to disable. Default 4 hours.
+const MAX_LIFETIME_MS = process.env.OBSERVER_MAX_LIFETIME_MS !== undefined
+  ? Number(process.env.OBSERVER_MAX_LIFETIME_MS) : 4 * 60 * 60 * 1000;
+
 function isIgnored(filename) {
   const parts = filename.split(path.sep);
   if (parts.some(part => ignoreDirs.includes(part))) return true;
+  if (ignoreBasenames.includes(path.basename(filename))) return true;
   const ext = path.extname(filename);
   if (ignoreExtensions.includes(ext)) return true;
   if (ignoreExtensions.some(ignored => filename.endsWith(ignored))) return true;
@@ -137,8 +160,38 @@ if (baseline === null) {
   console.error('warning: `git ls-files` failed here — wakes require a git repo to confirm changes.');
 }
 
+// `.pairing/run.json` integration. The .pairing dir is excluded from the content
+// fingerprint (it is git-ignored and in ignoreDirs), so the Executor's
+// ready_to_finish handshake write would otherwise never wake the observer —
+// the poll below checks the file explicitly. We also record our PID so
+// `pair.js init`/`pair.js finish` can reap a stale watcher.
+const RUN_JSON = path.join(watchDir, '.pairing', 'run.json');
+
+function readRunJson() {
+  try { return JSON.parse(fs.readFileSync(RUN_JSON, 'utf8')); } catch (e) { return null; }
+}
+
+const runAtArm = readRunJson();
+if (runAtArm) {
+  runAtArm.watcher_pid = process.pid;
+  try { fs.writeFileSync(RUN_JSON, JSON.stringify(runAtArm, null, 2) + '\n'); } catch (e) {}
+}
+// Only a TRANSITION to ready_to_finish wakes, so re-arming while the flag is
+// still set (observer appended findings; executor not yet re-polled) does not
+// spin an immediate wake loop.
+const executorAtArm = runAtArm ? runAtArm.executor : null;
+
+function checkRunJson() {
+  const run = readRunJson();
+  if (!run) return;
+  if (run.status === 'done') finish('Watcher stopping: run marked done.');
+  if (run.executor === 'ready_to_finish' && executorAtArm !== 'ready_to_finish')
+    finish('Detected change: executor signalled ready_to_finish');
+}
+
 let debounceTimer = null;
 let pollTimer = null;
+let lifetimeTimer = null;
 
 console.log(`Watching ${watchDir} (debounce ${DEBOUNCE_MS}ms, poll ${POLL_MS}ms; exits only on a content change to a non-ignored file)...`);
 
@@ -193,7 +246,21 @@ if (watchDegraded) {
 }
 
 if (POLL_MS > 0) {
-  pollTimer = setInterval(() => checkAndExit('git-poll (fs.watch missed a save)'), POLL_MS);
+  pollTimer = setInterval(() => {
+    checkRunJson();
+    checkAndExit('git-poll (fs.watch missed a save)');
+  }, POLL_MS);
+}
+
+if (MAX_LIFETIME_MS > 0) {
+  lifetimeTimer = setTimeout(
+    () => finish(`Watcher max lifetime reached (${MAX_LIFETIME_MS}ms) with no change detected — self-reaping. Re-arm if the run is still live.`),
+    MAX_LIFETIME_MS);
+}
+
+// Die clean on TaskStop / session teardown instead of lingering as an orphan.
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => finish(`Watcher terminated by ${sig}.`));
 }
 
 // Debounced git check shared by fs.watch events.
@@ -213,6 +280,7 @@ function checkAndExit(reason) {
 function finish(message) {
   if (debounceTimer) clearTimeout(debounceTimer);
   if (pollTimer) clearInterval(pollTimer);
+  if (lifetimeTimer) clearTimeout(lifetimeTimer);
   for (const w of watchers) { try { w.close(); } catch (e) {} }
   console.log(message);
   process.exit(0);
