@@ -1,6 +1,6 @@
 ---
 name: agent-pairing
-description: Run paired AI agents on a coding task — one background Executor writes the code while this session acts as a live Observer, auditing every save and feeding findings back through a shared file until the static audit comes back clean.
+description: Run paired AI agents on a coding task — one background Executor writes the code while this session acts as a live Observer, performing a strict audit on every save and feeding findings back through a shared file until the static audit comes back clean.
 ---
 
 # Agent Pairing
