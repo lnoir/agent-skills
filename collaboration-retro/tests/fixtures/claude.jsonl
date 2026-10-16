@@ -1,0 +1,6 @@
+{"type":"user","sessionId":"session-a","timestamp":"2025-01-02T10:00:00Z","message":{"role":"user","content":"No, use the project test command instead."}}
+{"type":"assistant","sessionId":"session-a","timestamp":"2025-01-02T10:01:00Z","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"python3 -m unittest"}},{"type":"tool_use","name":"Skill","input":{"skill":"review"}}]}}
+{"type":"user","sessionId":"session-b","timestamp":"2025-01-03T10:00:00Z","message":{"role":"user","content":[{"type":"text","text":"No, use the project test command instead."}]}}
+{"type":"assistant","sessionId":"session-b","timestamp":"2025-01-03T10:01:00Z","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"python3 -m unittest"}},{"type":"tool_use","name":"Skill","input":{"skill":"review"}}]}}
+{"type":"user","sessionId":"session-b","timestamp":"2025-01-04T10:00:00Z","message":{"role":"user","content":"Here is richer context and the requirements for this interface."}}
+{"type":"user","sessionId":"old","timestamp":"2024-12-01T10:00:00Z","message":{"role":"user","content":"No, old private correction."}}

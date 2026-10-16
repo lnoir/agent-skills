@@ -5,6 +5,11 @@ scattered skills here, starting with the pairing/observer pair.
 
 ## Skills
 
+### [collaboration-retro](collaboration-retro/)
+Mine local agent transcripts through correction, repetition, and improvement
+lenses into a weekly digest. Applying behavior-shaping memories, rules, skills,
+or scripts is a separate manual flow requiring explicit per-proposal approval.
+
 ### [agent-pairing](agent-pairing/)
 Run paired agents on a coding task: a background **Executor** writes the code
 while your session acts as a live **Observer**, auditing every save and feeding
@@ -26,6 +31,7 @@ symlink into `~/.claude/skills/` (or `~/.skills/`) so it tracks the repo:
 ```bash
 ln -s "$PWD/agent-pairing"  ~/.claude/skills/agent-pairing
 ln -s "$PWD/agent-observer" ~/.claude/skills/agent-observer
+ln -s "$PWD/collaboration-retro" ~/.claude/skills/collaboration-retro
 ```
 
 Other tools (e.g. Antigravity) use their own skills directory — install there per

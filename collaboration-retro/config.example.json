@@ -1,0 +1,77 @@
+{
+  "default_agent": "claude",
+  "defaults": {
+    "format": "claude-code-jsonl",
+    "state_path": "~/.local/share/collaboration-retro/{agent}/state.json",
+    "decisions_ledger": "~/.local/share/collaboration-retro/{agent}/decisions.jsonl",
+    "memory_index": [
+      "~/.local/share/collaboration-retro/{agent}/memories/**/*.md"
+    ],
+    "persistence_targets": {
+      "feedback": "~/.local/share/collaboration-retro/{agent}/memories/feedback",
+      "reference": "~/.local/share/collaboration-retro/{agent}/memories/reference",
+      "rule": "~/.local/share/collaboration-retro/{agent}/rules",
+      "skill": "~/.local/share/collaboration-retro/{agent}/skills",
+      "script": "~/.local/share/collaboration-retro/{agent}/scripts"
+    },
+    "scheduler": {
+      "weekday": 1,
+      "hour": 9,
+      "minute": 0,
+      "plist_path": "~/Library/LaunchAgents/local.collaboration-retro.{agent}.plist",
+      "stdout_path": "~/.local/share/collaboration-retro/{agent}/schedule.out.log",
+      "stderr_path": "~/.local/share/collaboration-retro/{agent}/schedule.err.log",
+      "notification_command": [
+        "osascript",
+        "-e",
+        "display notification \"Weekly collaboration digest is ready\" with title \"Collaboration retro\""
+      ]
+    },
+    "output": {
+      "dir": "~/.local/share/collaboration-retro/{agent}"
+    }
+  },
+  "agents": {
+    "claude": {
+      "format": "claude-code-jsonl",
+      "transcript_globs": [
+        "~/.claude/projects/**/*.jsonl"
+      ],
+      "tool_semantics": {
+        "shell": [
+          "Bash"
+        ],
+        "workflow": [
+          "Skill"
+        ]
+      },
+      "scheduler": {
+        "label": "local.collaboration-retro.claude",
+        "mine_command": [
+          "replace-with-local-model-harness",
+          "Load collaboration-retro and run mine mode using the config and agent named by COLLABORATION_RETRO_CONFIG and COLLABORATION_RETRO_AGENT"
+        ]
+      }
+    },
+    "chatgpt": {
+      "transcript_globs": [
+        "~/.local/share/replace-me/**/*.jsonl"
+      ],
+      "tool_semantics": {
+        "shell": [
+          "shell"
+        ],
+        "workflow": [
+          "skill"
+        ]
+      },
+      "scheduler": {
+        "label": "local.collaboration-retro.chatgpt",
+        "mine_command": [
+          "replace-with-local-harness-command"
+        ]
+      },
+      "format": "replace-with-adapter-name"
+    }
+  }
+}
