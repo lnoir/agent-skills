@@ -128,9 +128,8 @@ The reviewer prompt (template: [references/reviewer-prompt.md](references/review
   most real bugs in rounds 1–2; rounds 3+ mostly catch regressions introduced
   by fixes, and small, clean tickets converge in two rounds.
 - **Fix your own commit message** if a reviewer shows it overclaims — amend and
-  force-push the backup branch (or, if force-push is blocked, note the
-  correction in a follow-up commit message); this stops being allowed once a
-  PR is open.
+  force-push the backup branch (not allowed once a PR is open), or, if
+  force-push is blocked, note the correction in a follow-up commit message.
 - **Merging another branch in.** If a sibling ticket merges first, merge
   `origin/<base>` into the branch with a merge commit, never a rebase.
   Regenerate lockfiles with tooling. Then run a review round on the merge:
