@@ -1,27 +1,39 @@
 # agent-skills
 
-A small, growing collection of agent skills for Claude Code. Consolidating
-scattered skills here, starting with the pairing/observer pair.
+A collection of agent skills for Claude Code (and other skill-aware agent tools).
 
 ## Skills
 
-### [collaboration-retro](collaboration-retro/)
-Mine local agent transcripts through correction, repetition, and improvement
-lenses into a weekly digest. Applying behavior-shaping memories, rules, skills,
-or scripts is a separate manual flow requiring explicit per-proposal approval.
+### [pr-review](pr-review/)
+Review a pull request with a fan-out/verify pipeline: check the PR head out into
+an isolated, detached worktree pinned to one commit, fan out specialist subagents
+(correctness, security, quality) that return structured findings, verify every
+finding against the real code, then draft self-contained comments for approval
+before posting a single review.
 
 ### [agent-pairing](agent-pairing/)
 Run paired agents on a coding task: a background **Executor** writes the code
 while your session acts as a live **Observer**, auditing every save and feeding
 findings back through a shared `.pairing/` file until the task converges clean.
-Builds on `agent-observer`. Each role's contract lives in [`roles/`](agent-pairing/roles).
+Builds on `agent-observer`; each role's contract lives in [`roles/`](agent-pairing/roles).
 
 ### [agent-observer](agent-observer/)
 Watch a workspace and audit edits in real time. A background watcher wakes the
-agent only on a **git-confirmed change — never on a timer** — so every wake has
-something to review. `fs.watch` for latency, a `git status` poll for the saves it
-misses (rename-replace edits). Static-only: it reasons by reading diffs, and never
-runs build/test/lint (those pollute the diff and contend with the editor).
+agent only on a git-confirmed change — never on a timer — so every wake has
+something to review. Static-only: it reads diffs and never runs build/test/lint.
+
+### [collaboration-retro](collaboration-retro/)
+Mine local agent transcripts through correction, repetition, and improvement
+lenses into a weekly digest. Applying memories, rules, skills, or scripts from
+it is a separate manual flow requiring explicit per-proposal approval.
+
+### [skill-review](skill-review/)
+Audit an untrusted skill, plugin, or agent-tool package for malicious code and
+prompt injection before installing or trusting it.
+
+### [strange-mode](strange-mode/)
+Explore multiple parallel implementation variations in git worktrees or sandbox
+playgrounds to compare architectural approaches.
 
 ## Install
 
@@ -29,18 +41,9 @@ Install each skill wherever your agent tool discovers skills. For Claude Code,
 symlink into `~/.claude/skills/` (or `~/.skills/`) so it tracks the repo:
 
 ```bash
-ln -s "$PWD/agent-pairing"  ~/.claude/skills/agent-pairing
-ln -s "$PWD/agent-observer" ~/.claude/skills/agent-observer
-ln -s "$PWD/collaboration-retro" ~/.claude/skills/collaboration-retro
+ln -s "$PWD/<skill-name>" ~/.claude/skills/<skill-name>
 ```
 
-Other tools (e.g. Antigravity) use their own skills directory — install there per
-that tool's convention. The watcher path is **not** hardcoded: each SKILL.md has
-the agent run `scripts/watch.js` relative to the skill's own directory — the
-location it loaded the skill from — so it works wherever the skill lives. Requires
-[bun](https://bun.sh) and a git repo in the workspace being
-watched).
-
-## Status
-
-Early — just starting to gather skills into one place. More to follow.
+Skills resolve their own scripts relative to the directory they load from, so
+they work wherever they live. The pairing/observer skills require
+[bun](https://bun.sh) and a git repo in the watched workspace.
