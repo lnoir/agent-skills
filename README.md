@@ -17,6 +17,12 @@ while your session acts as a live **Observer**, auditing every save and feeding
 findings back through a shared `.pairing/` file until the task converges clean.
 Builds on `agent-observer`; each role's contract lives in [`roles/`](agent-pairing/roles).
 
+### [adversarial-pr-loop](adversarial-pr-loop/)
+Operator-invoked loop for critical work and cloud sessions where agent-pairing
+can't run: implement with subagents, commit locally, then run a **fresh**
+adversarial reviewer each round — findings verified by the orchestrator before
+any fix — until a round comes back clean, and only then raise the PR.
+
 ### [agent-observer](agent-observer/)
 Watch a workspace and audit edits in real time. A background watcher wakes the
 agent only on a git-confirmed change — never on a timer — so every wake has
