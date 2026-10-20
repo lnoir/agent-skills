@@ -20,6 +20,9 @@ No PR is opened until a review round is clean. Do push the branch as a backup
 after each implementer hand-back (a branch push, no PR): in a cloud container
 local commits can vanish when the container is replaced. While no PR exists,
 the backup branch is yours — amending a commit and force-pushing it is fine.
+If the environment's permission rules block force-push (some auto-modes treat
+it as destructive), don't fight it: push a new commit instead. A plain
+fast-forward push costs nothing more than an extra commit.
 
 ## 1. Plan the tickets
 
@@ -125,7 +128,9 @@ The reviewer prompt (template: [references/reviewer-prompt.md](references/review
   most real bugs in rounds 1–2; rounds 3+ mostly catch regressions introduced
   by fixes, and small, clean tickets converge in two rounds.
 - **Fix your own commit message** if a reviewer shows it overclaims — amend and
-  force-push the backup branch; this stops being allowed once a PR is open.
+  force-push the backup branch (or, if force-push is blocked, note the
+  correction in a follow-up commit message); this stops being allowed once a
+  PR is open.
 - **Merging another branch in.** If a sibling ticket merges first, merge
   `origin/<base>` into the branch with a merge commit, never a rebase.
   Regenerate lockfiles with tooling. Then run a review round on the merge:
