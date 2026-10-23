@@ -1,6 +1,6 @@
 ---
 name: adversarial-pr-loop
-description: Implement tickets with subagents, then run fresh adversarial reviewers until a round comes back clean, then raise the PR. Operator-invoked only — run this loop when explicitly asked to (e.g. /adversarial-pr-loop, or "use the adversarial PR loop"); never adopt it on your own judgement. Suited to cloud/remote sessions where the local agent-pairing flow can't run, and to critical work generally.
+description: Implement tickets with subagents, then run fresh adversarial reviewers until a round comes back clean, then raise the PR. Operator-invoked only — run this loop when explicitly asked to (e.g. /adversarial-pr-loop, or "use the adversarial PR loop"); never adopt it on your own judgement. Suited to sessions with no local worktree (where agent-pairing can't run), and to critical work generally — including as a review stage after an agent-pairing run.
 ---
 
 # Adversarial PR loop
