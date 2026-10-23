@@ -27,7 +27,7 @@ never contend with it. Running the program once against a fixture (`node cli.js
 
 ## What you audit
 
-The new delta on each save (the [agent-observer](../../agent-observer/SKILL.md) lens):
+The new delta on each save:
 - strict, adversarial review of the changes
 - compile/syntax errors (missing fields, invalid imports, mismatched types);
 - integration gaps (arg parsed but not passed, route changed but caller not

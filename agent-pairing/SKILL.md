@@ -10,8 +10,8 @@ Pair an autonomous **Executor** (a background agent that writes the code) with a
 bugs, compile errors, and integration gaps as they are saved and feeds them back
 to the Executor through a shared file, looping until the static audit is clean.
 
-This builds on the [agent-observer](../agent-observer/SKILL.md) skill's event-driven wake
-mechanism: a background watcher exits the instant a real change is saved, waking
+This uses an event-driven wake mechanism (the same one as the standalone
+agent-observer skill): a background watcher exits the instant a real change is saved, waking
 this session to audit the diff. It **exits only on a confirmed content change, never
 on a timer** — no change, no wake. Confirmation is a **content fingerprint** of every
 non-ignored file (`git ls-files -oc --exclude-standard`, tracked *and* untracked),
@@ -23,9 +23,11 @@ and does not wake. A slow poll backs up `fs.watch` for the saves it misses.
 Run this gate mentally before Phase 1. If any item fails, say so and fall back to
 working normally instead of running a loop that cannot fire:
 
-1. **A local git worktree the Executor writes to.** MCP-only, cloud-side, or
-   remote-build tasks produce no local saves — the watcher can never wake and the
-   loop silently degrades to one end-of-run read. Don't run it.
+1. **A local git worktree the Executor writes to.** MCP-only or remote-build
+   tasks produce no local saves — the watcher can never wake and the loop
+   silently degrades to one end-of-run read. Don't run it. A Claude Code cloud
+   session *does* qualify: the Executor is a subagent in the same container
+   writing to the session's clone (see **Claude Code cloud sessions** below).
 2. **The change is big enough to pair on.** For a one-file, few-line change the
    ceremony costs more than it catches — just do it and review inline.
 3. **The work surface is visible to git.** If the task's target paths are
@@ -111,6 +113,31 @@ running background agent, so these files are how findings flow back.
   no artifact/brain directory routing. If your harness rejects a write as "not a
   valid artifact path", retry as a plain file write with no metadata.
 
+## Claude Code cloud sessions
+
+The loop runs in a Claude Code cloud session (verified 2026-10-23: `pair.js`
+lifecycle, watcher wake on a save, wake on `executor-ready`, `executor-wait`
+verdict). Four things differ from a local terminal:
+
+- **`fs.watch` never fires in the container.** Every wake comes from the git
+  poll (`OBSERVER_POLL_MS`, default 4 s), so expect up to one poll interval of
+  latency per wake. Nothing else changes; the poll is the designed backstop.
+- **Background Bash is capped at 2 h**, below the watcher's 4 h self-reap. Arm
+  it with the maximum timeout (`timeout: 7200000`) and treat any watcher exit
+  whose message is not `Detected change: …` as "re-arm and go idle", never as
+  a wake.
+- **The `Agent` tool has no `name` parameter.** Spawn the Executor with
+  `run_in_background: true` and keep the `agentId` from the spawn result; pass
+  that to `SendMessage` and `TaskStop` wherever this document says "named".
+- **Install dependencies before kickoff.** A fresh container has no
+  `node_modules`. Run the repo's own setup (its SessionStart hook or install
+  command) in Phase 1, before spawning the Executor, so round one isn't spent on
+  installs and the Observer never has to run them.
+
+The skill itself is found wherever the environment's setup script put it
+(normally `~/.claude/skills/agent-pairing`). If it isn't listed, clone the repo
+and read `agent-pairing/SKILL.md` by path; `SKILL_DIR` is then that directory.
+
 ## Phase 1 — Kickoff
 
 1. `bun "$SKILL_DIR/scripts/pair.js" init` (optionally pass the task's target
@@ -159,7 +186,7 @@ notification type.
    next delta. If the delta is empty (edit-then-revert), re-arm and go idle.
 2. Read the findings file first to avoid re-flagging. Reconcile: mark items
    `RESOLVED` if this delta fixes them.
-3. Audit the delta (the [agent-observer](../agent-observer/SKILL.md) lens):
+3. Audit the delta (the lens in [`roles/observer.md`](roles/observer.md)):
    compile/syntax errors, integration gaps, logic bugs, off-by-ones,
    secrets/values that don't add up. Also read any file `audit-begin` lists as
    changed-but-untracked in full.

@@ -18,8 +18,8 @@ findings back through a shared `.pairing/` file until the task converges clean.
 Builds on `agent-observer`; each role's contract lives in [`roles/`](agent-pairing/roles).
 
 ### [adversarial-pr-loop](adversarial-pr-loop/)
-Operator-invoked loop for critical work and cloud sessions where agent-pairing
-can't run: implement with subagents, commit locally, then run a **fresh**
+Operator-invoked loop for critical work, and for sessions with no local
+worktree where agent-pairing can't run: implement with subagents, commit locally, then run a **fresh**
 adversarial reviewer each round — findings verified by the orchestrator before
 any fix — until a round comes back clean, and only then raise the PR.
 
