@@ -33,6 +33,12 @@ Mine local agent transcripts through correction, repetition, and improvement
 lenses into a weekly digest. Applying memories, rules, skills, or scripts from
 it is a separate manual flow requiring explicit per-proposal approval.
 
+### [soloroot-mail-agent](soloroot-mail-agent/)
+Read, search and draft mail in a Soloroot mailbox as an approved agent: start a
+SARA session with the fewest actions, wait for the owner to approve it in the
+app, then run `list_threads`, `get_thread`, `search` (incl. the Review list),
+`get_attachment` and `save_draft`. Needs the stack URL and an agent token.
+
 ### [skill-review](skill-review/)
 Audit an untrusted skill, plugin, or agent-tool package for malicious code and
 prompt injection before installing or trusting it.
