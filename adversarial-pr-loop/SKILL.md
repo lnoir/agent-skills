@@ -30,7 +30,9 @@ fast-forward push costs nothing more than an extra commit.
   this session has (`bst`, Linear, GitHub issues). If no tracker is reachable,
   keep the same structure in a `PLAN.md` at the repo root and say so in the PR.
 - Put enough detail in each child that an agent can do it from the ticket
-  alone: diagnosed breakages, file paths, a "Done when" section.
+  alone: diagnosed breakages, file paths, a "Done when" section, and a rough
+  **size estimate** (non-test lines). The estimate is what the size tripwire in
+  §5 measures against, and the ticket text is what every reviewer gets (§3).
 - Add blocking relations, and run in parallel only the tickets that are truly
   independent. Say which ones are sequential and why.
 - A library bug found along the way gets its own ticket and its own loop in the
@@ -74,6 +76,10 @@ The reviewer prompt (template: [references/reviewer-prompt.md](references/review
   in its own scratch area.
 - It reviews exactly what the PR will contain (`git diff <base>...HEAD`). After
   a fix round, it focuses on the new commits, then skims the whole diff.
+- **The brief:** the ticket's goal, "Done when" and size estimate, verbatim.
+  Claims alone let a reviewer check the branch only against itself: round
+  after round can harden a mechanism that defeats the ticket's purpose, and
+  no one notices because every finding is internally consistent.
 - **Claims to check:** what the branch says it does, so the reviewer verifies
   claims instead of trusting them.
 - **Previous findings:** a list of them, to confirm they are actually fixed and
@@ -81,9 +87,15 @@ The reviewer prompt (template: [references/reviewer-prompt.md](references/review
 - **An explicit out-of-scope list:** pre-existing issues already ticketed, and
   settled decisions. Without it, every round re-raises the same things.
 - **Targeted hunts**, for example:
+  - goal and proportion — does the branch still serve the brief, and is any
+    mechanism out of proportion to the problem it solves? A finding here is
+    as valid as a bug;
   - a fresh-clone run of install plus the full test suite — high value: the
     implementer's warm environment hides fresh-clone failures that hit CI on
-    day one;
+    day one. Run it as a **different user from the implementer**, and as root
+    if the implementer wasn't: containers and cloud sessions run as root, and
+    permission-based fixtures (`chmod 000`) pass for one user and fail for
+    the other;
   - process leaks and signal handling;
   - tests weakened to pass (compare against base) — a weakened assertion can
     hide a real bug in the code under test;
@@ -91,10 +103,11 @@ The reviewer prompt (template: [references/reviewer-prompt.md](references/review
   - README vs actual behaviour;
   - DRY, YAGNI and file size against the repo's rules.
 - **Output:** numbered findings, most severe first. Each one has a severity
-  (blocking / should-fix / nit), `file:line`, a concrete failure scenario, and
-  **how it was verified** (read / ran / reproduced). Speculative findings are
-  marked. If there is nothing worth fixing, the reviewer says "No findings"
-  plainly and doesn't pad the list.
+  (blocking / should-fix / nit), a **likelihood** (common / plausible / rare),
+  `file:line`, a concrete failure scenario, and **how it was verified** (read /
+  ran / reproduced). Speculative findings are marked. A finding inside code a
+  previous fix round added says so. If there is nothing worth fixing, the
+  reviewer says "No findings" plainly and doesn't pad the list.
 
 ## 4. Triage (orchestrator)
 
@@ -102,6 +115,15 @@ The reviewer prompt (template: [references/reviewer-prompt.md](references/review
   before forwarding them. Don't forward unverified claims as orders.
 - **Fix:** blocking items, should-fix items, and verified cheap nits introduced
   by the branch.
+- **Prefer removal.** For a finding inside code this branch added, first ask
+  whether deleting or narrowing that code, or documenting a limit, resolves
+  it. A fix that brings in a new mechanism (a state machine, a retry counter,
+  a scan with bounds) needs a stated reason, and it is the usual source of the
+  next round's finding.
+- **Weigh likelihood, not just severity.** A `rare` finding (it needs an
+  unusual environment or a hand-made fault, such as an unwritable `refs/`) goes
+  to the PR's known-limits list by default. Fix it only when the fix is cheap
+  or the consequence is data loss or something outward-facing.
 - **Don't fix in this PR**, and say why:
   - Speculative findings with no reproduction.
   - Pre-existing issues that need behaviour changes. Add them to the relevant
@@ -121,12 +143,23 @@ The reviewer prompt (template: [references/reviewer-prompt.md](references/review
 
 - **Stop condition:** stop when a round finds nothing worth fixing. Remaining
   items must be pre-existing, out of scope, or speculative, and must be
-  ticketed.
+  ticketed, or rare and listed in the PR's known limits.
 - **Round cap:** if round 5 is still producing verified findings, stop looping.
   Report the open findings and the round history to the operator and ask how to
   proceed — more rounds, descope, or ship with ticketed known issues. Expect
   most real bugs in rounds 1–2; rounds 3+ mostly catch regressions introduced
   by fixes, and small, clean tickets converge in two rounds.
+- **Earlier stops: ask the operator before another round when either fires.**
+  - **Churn:** two rounds in a row whose findings sit in code the previous
+    fix round added. The loop is now hardening its own fixes; the usual way out
+    is to remove that mechanism, not to patch it again.
+  - **Size:** the branch's non-test diff passes 2× the ticket's size
+    estimate. Report the estimate, the actual size and what grew, and let the
+    operator choose between descoping and continuing.
+- **Follow-up fixes after the loop** (the operator's or a PR reviewer's small
+  asks once the PR is open) get one scoped review of the new commit, not a
+  fresh loop. Re-enter the full loop only if the fix grows past the files it
+  was asked to touch.
 - **Fix your own commit message** if a reviewer shows it overclaims — amend and
   force-push the backup branch (not allowed once a PR is open), or, if
   force-push is blocked, note the correction in a follow-up commit message.
